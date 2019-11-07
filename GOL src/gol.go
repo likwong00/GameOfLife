@@ -47,7 +47,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
                             }
                             // Check for how many alive cells are around the original cell
                             if world[y + i][x + j] == 0xFF {
-                                CellsAround++
+                                AliveCellsAround++
                             }
                         }
                     }
@@ -65,7 +65,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
                             }
                             // Check for how many alive cells are around the original cell
                             if world[y + i][x + j] == 0xFF {
-                                CellsAround++
+                                AliveCellsAround++
                             }
                         }
                     }

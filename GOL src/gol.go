@@ -35,38 +35,34 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		for y := 0; y < p.imageHeight; y++ {
 			for x := 0; x < p.imageWidth; x++ {
 
-                int AliveCellsAround := 0
+				AliveCellsAround := 0
 
 				// Case for alive cell, check the current cell to be alive or not
 				if world[y][x] == 0xFF {
-                    for i := (-1); i < 2; i++ {
-                        for j := (-1); j < 2, j++ {
-                            // Ignore the original cell
-                            if world[y + i][x + j] == world[y][x] {
+                    for i := -1; i < 2; i++ {
+                        for j := -1; j < 2; j++ {
+                            // Ignore the original cell or
+							// Check for how many alive cells are around the original cell
+                            if y + i == y && x + j == x {
                                 continue
-                            }
-                            // Check for how many alive cells are around the original cell
-                            if world[y + i][x + j] == 0xFF {
-                                AliveCellsAround++
-                            }
+                            } else if world[y + i][x + j] == 0xFF {
+								AliveCellsAround++
+							}
                         }
                     }
                     if AliveCellsAround < 2 || AliveCellsAround > 3 {
                         world[y][x] = world[y][x] ^ 0xFF
                     }
-				}
-
-				else if world[y][x] == 0x00 {
-				    for i := (-1); i < 2; i++ {
-                        for j := (-1); j < 2, j++ {
-                            // Ignore the original cell
-                            if world[y + i][x + j] == world[y][x] {
+				} else if world[y][x] == 0x00 {
+				    for i := -1; i < 2; i++ {
+                        for j := -1; j < 2; j++ {
+                            // Ignore the original cell or
+							// Check for how many alive cells are around the original cell
+                            if y + i == y && x + j == x {
                                 continue
-                            }
-                            // Check for how many alive cells are around the original cell
-                            if world[y + i][x + j] == 0xFF {
-                                AliveCellsAround++
-                            }
+                            } else if world[y + i][x + j] == 0xFF {
+								AliveCellsAround++
+							}
                         }
                     }
                     if AliveCellsAround == 3 {
@@ -87,6 +83,9 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 			}
 		}
 	}
+
+	// Send the finished state of the world to writePgmImage function
+	d.io.finishedWorld <- world
 
 	// Make sure that the Io has finished any output before exiting.
 	d.io.command <- ioCheckIdle

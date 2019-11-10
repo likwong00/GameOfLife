@@ -37,34 +37,26 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 
 				AliveCellsAround := 0
 
-				// Case for alive cell, check the current cell to be alive or not
+				// Check neighbours of original cell
+				for i := -1; i < 2; i++ {
+					for j := -1; j < 2; j++ {
+						// Ignore the original cell or
+						// Check for how many alive cells are around the original cell
+						// By adding the height and width and then modding it by them deals with out of bound issues
+						if y + i == y && x + j == x {
+							continue
+						} else if world[((y + i) + p.imageHeight) % p.imageHeight][((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
+								AliveCellsAround++
+								}
+							}
+                        }
+
+				// Cases for alive and dead original cells
 				if world[y][x] == 0xFF {
-                    for i := -1; i < 2; i++ {
-                        for j := -1; j < 2; j++ {
-                            // Ignore the original cell or
-							// Check for how many alive cells are around the original cell
-                            if y + i == y && x + j == x {
-                                continue
-                            } else if world[y + i][x + j] == 0xFF {
-								AliveCellsAround++
-							}
-                        }
-                    }
-                    if AliveCellsAround < 2 || AliveCellsAround > 3 {
-                        world[y][x] = world[y][x] ^ 0xFF
-                    }
+					if AliveCellsAround < 2 || AliveCellsAround > 3 {
+						world[y][x] = world[y][x] ^ 0xFF
+					}
 				} else if world[y][x] == 0x00 {
-				    for i := -1; i < 2; i++ {
-                        for j := -1; j < 2; j++ {
-                            // Ignore the original cell or
-							// Check for how many alive cells are around the original cell
-                            if y + i == y && x + j == x {
-                                continue
-                            } else if world[y + i][x + j] == 0xFF {
-								AliveCellsAround++
-							}
-                        }
-                    }
                     if AliveCellsAround == 3 {
                         world[y][x] = world[y][x] ^ 0xFF
                     }

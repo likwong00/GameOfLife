@@ -42,9 +42,7 @@ func writePgmImage(p golParams, i ioChans) {
 	finishedWorld := <- i.distributor.finishedWorld
 	for y := 0; y < p.imageHeight; y++ {
 		for x := 0; x < p.imageWidth; x++ {
-			if finishedWorld[y][x] != 0 {
-				world[y][x] = finishedWorld[y][x]
-			}
+			world[y][x] = finishedWorld[y][x]
 		}
 	}
 

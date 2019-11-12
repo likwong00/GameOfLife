@@ -31,6 +31,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 	}
 
 	// Calculate the new state of Game of Life after the given number of turns.
+	var marked []cell
 	for turns := 0; turns < p.turns; turns++ {
 		for y := 0; y < p.imageHeight; y++ {
 			for x := 0; x < p.imageWidth; x++ {
@@ -40,29 +41,37 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 				// Check neighbours of original cell
 				for i := -1; i < 2; i++ {
 					for j := -1; j < 2; j++ {
-						// Ignore the original cell or
-						// Check for how many alive cells are around the original cell
+						// Check for how many alive cells are around the original cell (Ignore the original cell)
 						// By adding the height and width and then modding it by them deals with out of bound issues
 						if y + i == y && x + j == x {
 							continue
 						} else if world[((y + i) + p.imageHeight) % p.imageHeight][((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
-								AliveCellsAround++
-								}
-							}
-                        }
+							AliveCellsAround++
+						}
+					}
+				}
 
 				// Cases for alive and dead original cells
-				if world[y][x] == 0xFF {
-					if AliveCellsAround < 2 || AliveCellsAround > 3 {
-						world[y][x] = world[y][x] ^ 0xFF
-					}
-				} else if world[y][x] == 0x00 {
-                    if AliveCellsAround == 3 {
-                        world[y][x] = world[y][x] ^ 0xFF
-                    }
+				// 'break' isn't needed for Golang switch
+				switch world[y][x] {
+					case 0xFF: // If cell alive
+						if AliveCellsAround < 2 || AliveCellsAround > 3 {
+							marked = append(marked, cell{x, y})
+						}
+					case 0x00: // If cell dead
+						if AliveCellsAround == 3 {
+							marked = append(marked, cell{x, y})
+						}
 				}
 			}
 		}
+
+		// Kill/resurrect those marked then reset contents of marked
+		for _, c := range marked {
+			world[c.y][c.x] = world[c.y][c.x] ^ 0xFF
+		}
+		marked = nil
+
 	}
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
@@ -76,7 +85,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 	}
 
-	// Request the io goroutine to write in the image with the given filename.
+	// Request the io goroutine to write image with given filename.
 	d.io.command <- ioOutput
 	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight), strconv.Itoa(p.turns)}, "x")
 

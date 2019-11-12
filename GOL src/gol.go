@@ -76,6 +76,10 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 		}
 	}
 
+	// Request the io goroutine to write in the image with the given filename.
+	d.io.command <- ioOutput
+	d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight), strconv.Itoa(p.turns)}, "x")
+
 	// Send the finished state of the world to writePgmImage function
 	d.io.finishedWorld <- world
 

@@ -4,7 +4,51 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 )
+
+func worker(world [][]byte, imageHeight, imageWidth, startY, endY int, marked *[]cell, wg *sync.WaitGroup, mutex *sync.Mutex) {
+	// Signal this goroutine is finished at the end of the function
+	defer wg.Done()
+
+	for y := startY; y < endY; y++ {
+		for x := 0; x < imageWidth; x++ {
+
+			AliveCellsAround := 0
+
+			// Check neighbours of original cell
+			for i := -1; i < 2; i++ {
+				for j := -1; j < 2; j++ {
+					// Check for how many alive cells are around the original cell (Ignore the original cell)
+					// By adding the height and width and then modding it by them deals with out of bound issues
+					if y + i == y && x + j == x {
+						continue
+					} else if world[((y + i) + imageHeight) % imageHeight][((x + j) + imageWidth) % imageWidth] == 0xFF {
+						AliveCellsAround++
+					}
+				}
+			}
+
+			// Cases for alive and dead original cells
+			// 'break' isn't needed for Golang switch
+			switch world[y][x] {
+			case 0xFF: // If cell alive
+				if AliveCellsAround < 2 || AliveCellsAround > 3 {
+					mutex.Lock()
+					*marked = append(*marked, cell{x, y})
+					mutex.Unlock()
+				}
+			case 0x00: // If cell dead
+				if AliveCellsAround == 3 {
+					mutex.Lock()
+					*marked = append(*marked, cell{x, y})
+					mutex.Unlock()
+				}
+			}
+
+		}
+	}
+}
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p golParams, d distributorChans, alive chan []cell) {
@@ -32,46 +76,27 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 
 	// Calculate the new state of Game of Life after the given number of turns.
 	var marked []cell
+	var wg sync.WaitGroup
+	var mutex sync.Mutex
 	for turns := 0; turns < p.turns; turns++ {
-		for y := 0; y < p.imageHeight; y++ {
-			for x := 0; x < p.imageWidth; x++ {
-
-				AliveCellsAround := 0
-
-				// Check neighbours of original cell
-				for i := -1; i < 2; i++ {
-					for j := -1; j < 2; j++ {
-						// Check for how many alive cells are around the original cell (Ignore the original cell)
-						// By adding the height and width and then modding it by them deals with out of bound issues
-						if y + i == y && x + j == x {
-							continue
-						} else if world[((y + i) + p.imageHeight) % p.imageHeight][((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
-							AliveCellsAround++
-						}
-					}
-				}
-
-				// Cases for alive and dead original cells
-				// 'break' isn't needed for Golang switch
-				switch world[y][x] {
-					case 0xFF: // If cell alive
-						if AliveCellsAround < 2 || AliveCellsAround > 3 {
-							marked = append(marked, cell{x, y})
-						}
-					case 0x00: // If cell dead
-						if AliveCellsAround == 3 {
-							marked = append(marked, cell{x, y})
-						}
-				}
-			}
+		// Sending parts of world to workers
+		wg.Add(p.threads)
+		saveY := p.imageHeight / p.threads
+		startY := 0
+		endY := saveY
+		for threads :=  0; threads < p.threads; threads++ {
+			go worker(world, p.imageHeight, p.imageWidth, startY, endY, &marked, &wg, &mutex)
+			startY = endY
+			endY += saveY
 		}
 
+		// Wait until all goroutines finish
 		// Kill/resurrect those marked then reset contents of marked
+		wg.Wait()
 		for _, c := range marked {
 			world[c.y][c.x] = world[c.y][c.x] ^ 0xFF
 		}
 		marked = nil
-
 	}
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.

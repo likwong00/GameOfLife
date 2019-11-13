@@ -71,6 +71,7 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	var dChans distributorChans
 	var ioChans ioChans
 
+	// Creation of channels
 	ioCommand := make(chan ioCommand)
 	dChans.io.command = ioCommand
 	ioChans.distributor.command = ioCommand
@@ -93,6 +94,7 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 
 	aliveCells := make(chan []cell)
 
+	// Create goroutines
 	go distributor(p, dChans, aliveCells)
 	go pgmIo(p, ioChans)
 

@@ -78,6 +78,13 @@ func distributor(p golParams, d distributorChans, alive chan []cell) {
 	var marked []cell
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
+
+
+    var w [p.threads]chan byte
+	for thread := 0; thread < p.threads; thread++ {
+        w[thread] = make(chan byte)
+	}
+
 	for turns := 0; turns < p.turns; turns++ {
 		// Sending parts of world to workers
 		wg.Add(p.threads)

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/stretchr/testify/assert"
+	"fmt"
 	"os"
 	"testing"
 )
@@ -174,7 +174,7 @@ func Test(t *testing.T) {
 			alive := gameOfLife(test.args.p, nil)
 			//fmt.Println("Ran test:", test.name)
 			if test.name != "trace" {
-				assert.ElementsMatch(t, alive, test.args.expectedAlive)
+				assertEqualBoard(t, alive, test.args.expectedAlive, test.args.p)
 			}
 		})
 	}
@@ -316,4 +316,41 @@ func Benchmark(b *testing.B) {
 			}
 		})
 	}
+}
+
+func boardFail(t *testing.T, given, expected []cell, p golParams) bool {
+	errorString := fmt.Sprintf("-----------------\n\n  FAILED TEST\n  16x16\n  %d Workers\n  %d Turns\n", p.threads, p.turns)
+	errorString = errorString + aliveCellsToString(given, expected, p.imageWidth, p.imageHeight)
+	t.Error(errorString)
+	return false
+}
+
+func assertEqualBoard(t *testing.T, given, expected []cell, p golParams) bool {
+	givenLen := len(given)
+	expectedLen := len(expected)
+
+	if givenLen != expectedLen {
+		return boardFail(t, given, expected, p)
+	}
+
+	visited := make([]bool, expectedLen)
+	for i := 0; i < givenLen; i++ {
+		element := given[i]
+		found := false
+		for j := 0; j < expectedLen; j++ {
+			if visited[j] {
+				continue
+			}
+			if expected[j] == element {
+				visited[j] = true
+				found = true
+				break
+			}
+		}
+		if !found {
+			return boardFail(t, given, expected, p)
+		}
+	}
+
+	return true
 }

@@ -1,6 +1,9 @@
 package main
 
-import "flag"
+import (
+	"flag"
+	"unicode"
+)
 
 // golParams provides the details of how to run the Game of Life and which image to load.
 type golParams struct {
@@ -38,7 +41,7 @@ type distributorToIo struct {
 	filename  chan<- string
 	inputVal  <-chan uint8
 
-	finishedWorld chan<- [][]byte
+	worldState chan<- [][]byte
 }
 
 // ioToDistributor defines all chans that the io goroutine will have to communicate with the distributor goroutine.
@@ -50,7 +53,7 @@ type ioToDistributor struct {
 	filename  <-chan string
 	inputVal  chan<- uint8
 
-	finishedWorld <-chan [][]byte
+	worldState <-chan [][]byte
 }
 
 // distributorChans stores all the chans that the distributor goroutine will use.
@@ -71,6 +74,7 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	var dChans distributorChans
 	var ioChans ioChans
 
+	// Creation of channels
 	ioCommand := make(chan ioCommand)
 	dChans.io.command = ioCommand
 	ioChans.distributor.command = ioCommand
@@ -87,14 +91,17 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	dChans.io.inputVal = inputVal
 	ioChans.distributor.inputVal = inputVal
 
-	finishedWorld := make(chan [][]byte)
-	dChans.io.finishedWorld = finishedWorld
-	ioChans.distributor.finishedWorld = finishedWorld
+	worldState := make(chan [][]byte)
+	dChans.io.worldState = worldState
+	ioChans.distributor.worldState = worldState
+
+	state := make(chan bool)
+	pause := make(chan bool)
+	quit := make(chan bool)
 
 	aliveCells := make(chan []cell)
 
 	// -- GOL --
-
 	// Make a slice of channels to send/receive data
 	// Instantiate workers
 	c := make([]chan byte, p.threads)
@@ -103,17 +110,29 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 		go worker(p, c[t])
 	}
 
-	go distributor(p, dChans, aliveCells, c)
+	go distributor(p, dChans, aliveCells, c, state, pause, quit)
 	go pgmIo(p, ioChans)
 
-	alive := <-aliveCells
-	return alive
+	// -- Keyboard commands --
+	for {
+		switch unicode.ToLower(<-keyChan) {
+		case 's':
+			state <- true
+		case 'p':
+			pause <- true
+		case 'q':
+			quit <- true
+			alive := <-aliveCells
+			return alive
+		}
+	}
 }
 
 // main is the function called when starting Game of Life with 'make gol'
 // Do not edit until Stage 2.
 func main() {
 	var params golParams
+	key := make(chan rune)
 
 	flag.IntVar(
 		&params.threads,
@@ -135,9 +154,10 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 10000000000
+	params.turns = 9999999999999
 
 	startControlServer(params)
-	gameOfLife(params, nil)
+	go getKeyboardCommand(key)
+	gameOfLife(params, key)
 	StopControlServer()
 }

@@ -15,7 +15,6 @@ func check(e error) {
 }
 
 // writePgmImage receives an array of bytes and writes it to a pgm file.
-// Note that this function is incomplete. Use the commented-out for loop to receive data from the distributor.
 func writePgmImage(p golParams, i ioChans) {
 	_ = os.Mkdir("out", os.ModePerm)
 
@@ -38,11 +37,10 @@ func writePgmImage(p golParams, i ioChans) {
 		world[i] = make([]byte, p.imageWidth)
 	}
 
-	// TODO: write a for-loop to receive the world from the distributor when outputting.
-	finishedWorld := <- i.distributor.finishedWorld
+	worldState := <- i.distributor.worldState
 	for y := 0; y < p.imageHeight; y++ {
 		for x := 0; x < p.imageWidth; x++ {
-			world[y][x] = finishedWorld[y][x]
+			world[y][x] = worldState[y][x]
 		}
 	}
 

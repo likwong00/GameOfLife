@@ -47,17 +47,14 @@ func worldToSourceData(world [][]byte, p golParams, saveY, startY, endY int, c c
 	}
 }
 
-func sourceToWorldData(world [][]byte, p golParams, startY, endY int,c <-chan byte, m *sync.Mutex, wg *sync.WaitGroup) {
+func sourceToWorldData(world [][]byte, p golParams, startY, endY int,c <-chan byte, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	// We're writing to the world so we need to make it safe
-	m.Lock()
 	for y := startY; y < endY; y++ {
 		for x := 0; x < p.imageWidth; x++ {
 			world[y][x] = <-c
 		}
 	}
-	m.Unlock()
 }
 
 func worker(p golParams, c chan byte) {
@@ -187,7 +184,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 			endY := saveY
 
 			var wg sync.WaitGroup
-			var m sync.Mutex
 
 			// Send data from world to source
 			wg.Add(p.threads)
@@ -205,7 +201,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 			// Receive data from source to world
 			wg.Add(p.threads)
 			for t := 0; t < p.threads; t++ {
-				go sourceToWorldData(world, p, startY, endY, c[t], &m, &wg)
+				go sourceToWorldData(world, p, startY, endY, c[t], &wg)
 				startY = endY
 				endY += saveY
 			}

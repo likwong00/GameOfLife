@@ -12,12 +12,12 @@ func readOrWritePgm(c ioCommand, p golParams, d distributorChans, world [][]byte
 	switch c {
 	// Request the io goroutine to read in the image with the given filename.
 	case ioInput:
-		d.io.command <- ioInput
+		d.io.command <- c
 		d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight)}, "x")
 
 	// Request the io goroutine to write image with given filename.
 	case ioOutput:
-		d.io.command <- ioOutput
+		d.io.command <- c
 		d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight), strconv.Itoa(turns)}, "x")
 
 		// Send the finished state of the world to writePgmImage function
@@ -192,14 +192,10 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 	loop : for turns < p.turns {
 		select {
 		case <-state:
-			go func() {
-				readOrWritePgm(ioOutput, p, d, world, turns)
-			}()
+			go readOrWritePgm(ioOutput, p, d, world, turns)
 
 		case <-pause:
-			go func() {
-				readOrWritePgm(ioOutput, p, d, world, turns)
-			}()
+			go readOrWritePgm(ioOutput, p, d, world, turns)
 
 			var wg sync.WaitGroup
 			wg.Add(1)
@@ -245,9 +241,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 				endY += saveY
 			}
 			wg.Wait()
-
-			readOrWritePgm(ioOutput, p, d, world, turns)
-			d.io.worldState <- world
 		}
 	}
 

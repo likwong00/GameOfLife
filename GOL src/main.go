@@ -114,17 +114,22 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	go pgmIo(p, ioChans)
 
 	// -- Keyboard commands --
-	for {
-		switch unicode.ToLower(<-keyChan) {
-		case 's':
-			state <- true
-		case 'p':
-			pause <- true
-		case 'q':
-			quit <- true
-			alive := <-aliveCells
-			return alive
+	if keyChan != nil {
+		for {
+			switch unicode.ToLower(<-keyChan) {
+			case 's':
+				state <- true
+			case 'p':
+				pause <- true
+			case 'q':
+				quit <- true
+				alive := <-aliveCells
+				return alive
+			}
 		}
+	} else {
+		alive := <-aliveCells
+		return alive
 	}
 }
 

@@ -74,7 +74,7 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	var dChans distributorChans
 	var ioChans ioChans
 
-	// Creation of channels
+	// Channels from structs
 	ioCommand := make(chan ioCommand)
 	dChans.io.command = ioCommand
 	ioChans.distributor.command = ioCommand
@@ -95,6 +95,7 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	dChans.io.worldState = worldState
 	ioChans.distributor.worldState = worldState
 
+	// Channels for keyboard commands
 	state := make(chan bool)
 	pause := make(chan bool)
 	quit := make(chan bool)

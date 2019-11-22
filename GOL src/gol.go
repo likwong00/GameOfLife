@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Read = ioInput, Write = ioOutput
@@ -155,8 +156,23 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 	// Send data to workers, do gol logic, receive data to world.
 	// for loops can be "named". This is used to break out of the loop when we signal to quit
 	turns := 0
+	currentAlive := 0
+	timer := time.After(2 * time.Second)
 	loop : for turns < p.turns {
 		select {
+		// Timer for every 2 seconds
+		case <-timer:
+			for y := 0; y < p.imageHeight; y++ {
+				for x := 0; x < p.imageWidth; x++ {
+					if world[y][x] != 0 {
+						currentAlive++
+					}
+				}
+			}
+
+			fmt.Println("No. of cells alive: ", currentAlive)
+			timer = time.After(2 * time.Second)
+
 		case <-state:
 			go readOrWritePgm(ioOutput, p, d, world, turns)
 

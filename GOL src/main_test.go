@@ -47,10 +47,58 @@ func Test(t *testing.T) {
 			},
 		}},
 
+		{"16x16x6-0", args{
+			p: golParams{
+				turns:       0,
+				threads:     4,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 4, y: 5},
+				{x: 5, y: 6},
+				{x: 3, y: 7},
+				{x: 4, y: 7},
+				{x: 5, y: 7},
+			},
+		}},
+
 		{"16x16x8-0", args{
 			p: golParams{
 				turns:       0,
 				threads:     8,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 4, y: 5},
+				{x: 5, y: 6},
+				{x: 3, y: 7},
+				{x: 4, y: 7},
+				{x: 5, y: 7},
+			},
+		}},
+
+		{"16x16x10-0", args{
+			p: golParams{
+				turns:       0,
+				threads:     4,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 4, y: 5},
+				{x: 5, y: 6},
+				{x: 3, y: 7},
+				{x: 4, y: 7},
+				{x: 5, y: 7},
+			},
+		}},
+
+		{"16x16x12-0", args{
+			p: golParams{
+				turns:       0,
+				threads:     4,
 				imageWidth:  16,
 				imageHeight: 16,
 			},
@@ -95,10 +143,58 @@ func Test(t *testing.T) {
 			},
 		}},
 
+		{"16x16x6-1", args{
+			p: golParams{
+				turns:       1,
+				threads:     2,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 3, y: 6},
+				{x: 5, y: 6},
+				{x: 4, y: 7},
+				{x: 5, y: 7},
+				{x: 4, y: 8},
+			},
+		}},
+
 		{"16x16x8-1", args{
 			p: golParams{
 				turns:       1,
 				threads:     8,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 3, y: 6},
+				{x: 5, y: 6},
+				{x: 4, y: 7},
+				{x: 5, y: 7},
+				{x: 4, y: 8},
+			},
+		}},
+
+		{"16x16x10-1", args{
+			p: golParams{
+				turns:       1,
+				threads:     2,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 3, y: 6},
+				{x: 5, y: 6},
+				{x: 4, y: 7},
+				{x: 5, y: 7},
+				{x: 4, y: 8},
+			},
+		}},
+
+		{"16x16x12-1", args{
+			p: golParams{
+				turns:       1,
+				threads:     2,
 				imageWidth:  16,
 				imageHeight: 16,
 			},
@@ -143,10 +239,58 @@ func Test(t *testing.T) {
 			},
 		}},
 
+		{"16x16x6-100", args{
+			p: golParams{
+				turns:       100,
+				threads:     2,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 12, y: 0},
+				{x: 13, y: 0},
+				{x: 14, y: 0},
+				{x: 13, y: 14},
+				{x: 14, y: 15},
+			},
+		}},
+
 		{"16x16x8-100", args{
 			p: golParams{
 				turns:       100,
 				threads:     8,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 12, y: 0},
+				{x: 13, y: 0},
+				{x: 14, y: 0},
+				{x: 13, y: 14},
+				{x: 14, y: 15},
+			},
+		}},
+
+		{"16x16x10-100", args{
+			p: golParams{
+				turns:       100,
+				threads:     2,
+				imageWidth:  16,
+				imageHeight: 16,
+			},
+			expectedAlive: []cell{
+				{x: 12, y: 0},
+				{x: 13, y: 0},
+				{x: 14, y: 0},
+				{x: 13, y: 14},
+				{x: 14, y: 15},
+			},
+		}},
+
+		{"16x16x12-100", args{
+			p: golParams{
+				turns:       100,
+				threads:     2,
 				imageWidth:  16,
 				imageHeight: 16,
 			},

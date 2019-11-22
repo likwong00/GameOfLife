@@ -105,13 +105,17 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	// -- GOL --
 	// Make a slice of channels to send/receive data
 	// Instantiate workers
-	c := make([]chan byte, p.threads)
+	b := make([]chan byte, p.threads)
+	c := make([]chan cell, p.threads)
+	l := make([]chan int, p.threads)
 	for t := 0; t < p.threads; t++ {
-		c[t] = make(chan byte)
-		go worker(p, c[t])
+		b[t] = make(chan byte)
+		c[t] = make(chan cell)
+		l[t] = make(chan int)
+		go worker(p, b[t], c[t], l[t])
 	}
 
-	go distributor(p, dChans, aliveCells, c, state, pause, quit)
+	go distributor(p, dChans, aliveCells, b, c, l, state, pause, quit)
 	go pgmIo(p, ioChans)
 
 	// -- Keyboard commands --

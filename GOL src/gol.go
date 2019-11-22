@@ -9,6 +9,7 @@ import (
 )
 
 // Read = ioInput, Write = ioOutput
+// TODO: Ask if this is memory sharing and if we need to send byte by byte instead
 func readOrWritePgm(c ioCommand, p golParams, d distributorChans, world [][]byte, turns int) {
 	switch c {
 	// Request the io goroutine to read in the image with the given filename.
@@ -48,17 +49,16 @@ func worldToSourceData(world [][]byte, p golParams, saveY, startY, endY int, c c
 	}
 }
 
-func sourceToWorldData(world [][]byte, p golParams, startY, endY int,c <-chan byte, wg *sync.WaitGroup) {
+func sourceToWorldData(world [][]byte, l, startY int, c <-chan cell, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	for y := startY; y < endY; y++ {
-		for x := 0; x < p.imageWidth; x++ {
-			world[y][x] = <-c
-		}
+	for j := 0; j < l; j++ {
+		cell := <-c
+		world[cell.y + startY][cell.x] = world[cell.y + startY][cell.x] ^ 0xFF
 	}
 }
 
-func worker(p golParams, c chan byte) {
+func worker(p golParams, b chan byte, c chan cell, l chan int) {
 	// Markers of which cells should be killed/resurrected
 	var marked []cell
 
@@ -77,12 +77,13 @@ func worker(p golParams, c chan byte) {
 		// 1. Receive data from world
 		for y := 0; y < sourceY; y++ {
 			for x := 0; x < p.imageWidth; x++ {
-				source[y][x] = <-c
+				source[y][x] = <-b
 			}
 		}
 
 		// 2. GOL logic
 		// y values indicate that GOL logic shouldn't happen on the first and last row
+		markedLength := 0
 		for y := 1; y < sourceY - 1; y++ {
 			for x := 0; x < p.imageWidth; x++ {
 				AliveCellsAround := 0
@@ -105,33 +106,28 @@ func worker(p golParams, c chan byte) {
 				case 0xFF: // If cell alive
 					if AliveCellsAround < 2 || AliveCellsAround > 3 {
 						marked = append(marked, cell{x, y})
+						markedLength++
 					}
 				case 0x00: // If cell dead
 					if AliveCellsAround == 3 {
 						marked = append(marked, cell{x, y})
+						markedLength++
 					}
 				}
 			}
 		}
 
 		// Kill/resurrect those marked then reset contents of marked
+		l <- markedLength
 		for _, cell := range marked {
-			source[cell.y][cell.x] = source[cell.y][cell.x] ^ 0xFF
+			c <- cell
 		}
 		marked = nil
-
-		// 3. Send data from source to world
-		// y values indicate that we shouldn't send data on the first and last row
-		for y := 1; y < sourceY - 1; y++ {
-			for x := 0; x < p.imageWidth; x++ {
-				c <- source[y][x]
-			}
-		}
 	}
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell, c []chan byte, state, pause, quit chan bool) {
+func distributor(p golParams, d distributorChans, alive chan []cell, b []chan byte, c []chan cell, l []chan int, state, pause, quit chan bool) {
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)
 	for i := range world {
@@ -156,12 +152,12 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 	// Send data to workers, do gol logic, receive data to world.
 	// for loops can be "named". This is used to break out of the loop when we signal to quit
 	turns := 0
-	currentAlive := 0
 	timer := time.After(2 * time.Second)
 	loop : for turns < p.turns {
 		select {
 		// Timer for every 2 seconds
 		case <-timer:
+			currentAlive := 0
 			for y := 0; y < p.imageHeight; y++ {
 				for x := 0; x < p.imageWidth; x++ {
 					if world[y][x] != 0 {
@@ -204,11 +200,11 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 			// Send data from world to source
 			wg.Add(p.threads)
 			for t := 0; t < p.threads; t++ {
-				go worldToSourceData(world, p, saveY, startY, endY, c[t], &wg)
+				go worldToSourceData(world, p, saveY, startY, endY, b[t], &wg)
 				startY = endY
 				endY += saveY
 			}
-			
+
 			// Wait until all workers have a completed source
 			wg.Wait()
 			startY = 0
@@ -217,7 +213,8 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 			// Receive data from source to world
 			wg.Add(p.threads)
 			for t := 0; t < p.threads; t++ {
-				go sourceToWorldData(world, p, startY, endY, c[t], &wg)
+				length := <- l[t]
+				go sourceToWorldData(world, length, startY - 1, c[t], &wg)
 				startY = endY
 				endY += saveY
 			}

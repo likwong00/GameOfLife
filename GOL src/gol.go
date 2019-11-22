@@ -37,51 +37,20 @@ func worldToSourceData(world [][]byte, p golParams, saveY, startY, endY int, c c
 			}
 		}
 
+	// Send rows normally
 	default:
-		// Properly give channel the bytes for source slice in worker
-		// TODO: Possible improvement of y value using modulus
-		switch startY {
-		// First chan in slice of chans
-		case 0:
-			// Send last row of world
+		for y := startY - 1; y < endY + 1; y++ {
 			for x := 0; x < p.imageWidth; x++ {
-				c <- world[p.imageHeight - 1][x]
-			}
-			// Send rows normally
-			for y := startY; y < endY + 1; y++ {
-				for x := 0; x < p.imageWidth; x++ {
-					c <- world[y][x]
-				}
-			}
-
-		// Last chan in slice of chans
-		case p.imageHeight - saveY:
-			// Send rows normally
-			for y := startY - 1; y < endY; y++ {
-				for x := 0; x < p.imageWidth; x++ {
-					c <- world[y][x]
-				}
-			}
-			// Send first row of world
-			for x := 0; x < p.imageWidth; x++ {
-				c <- world[0][x]
-			}
-
-		default:
-			// Send rows normally
-			for y := startY - 1; y < endY + 1; y++ {
-				for x := 0; x < p.imageWidth; x++ {
-					c <- world[y][x]
-				}
+				c <- world[(y + p.imageHeight) % p.imageHeight][x]
 			}
 		}
-
 	}
 }
 
 func sourceToWorldData(world [][]byte, p golParams, startY, endY int,c <-chan byte, m *sync.Mutex, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	// We're writing to the world so we need to make it safe
 	m.Lock()
 	for y := startY; y < endY; y++ {
 		for x := 0; x < p.imageWidth; x++ {

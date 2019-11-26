@@ -27,7 +27,7 @@ func readOrWritePgm(c ioCommand, p golParams, d distributorChans, world [][]byte
 	}
 }
 
-func worldToSourceData(world [][]byte, p golParams, saveY, startY, endY int, c chan<- byte, wg *sync.WaitGroup) {
+func worldToSourceData(world [][]byte, p golParams, saveY, startY, endY int, b chan<- byte, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	// If thread == 1, just do normal logic; otherwise, do conc logic
@@ -35,7 +35,7 @@ func worldToSourceData(world [][]byte, p golParams, saveY, startY, endY int, c c
 	case 0:
 		for y := startY; y < endY; y++ {
 			for x := 0; x < p.imageWidth; x++ {
-				c <- world[y][x]
+				b <- world[y][x]
 			}
 		}
 
@@ -43,7 +43,7 @@ func worldToSourceData(world [][]byte, p golParams, saveY, startY, endY int, c c
 	default:
 		for y := startY - 1; y < endY + 1; y++ {
 			for x := 0; x < p.imageWidth; x++ {
-				c <- world[(y + p.imageHeight) % p.imageHeight][x]
+				b <- world[(y + p.imageHeight) % p.imageHeight][x]
 			}
 		}
 	}
@@ -58,33 +58,57 @@ func sourceToWorldData(world [][]byte, l, startY int, c <-chan cell, wg *sync.Wa
 	}
 }
 
-func worker(p golParams, b chan byte, c chan cell, l chan int) {
+func worker(p golParams, b chan byte, c chan cell, l chan int, aboveReceive chan byte, belowReceive chan byte, aboveSend chan byte, belowSend chan byte) {
 	// Markers of which cells should be killed/resurrected
 	var marked []cell
 
 	// Create source slice
-	sourceY := p.imageHeight/p.threads + 2
+	sourceY := p.imageHeight/p.threads
 	source := make([][]byte, sourceY)
 	for i := range source {
 		source[i] = make([]byte, p.imageWidth)
 	}
 
-	// Infinite loop to:
-	// 1. Receive data from world to source
-	// 2. Do GOL logic
-	// 3. Send data from source to world
-	for {
-		// 1. Receive data from world
+	// Receive data from world
+	for i := 0; i < p.threads; i++ {
 		for y := 0; y < sourceY; y++ {
 			for x := 0; x < p.imageWidth; x++ {
-				source[y][x] = <-b
+				source[y][x] = <- b
 			}
 		}
+	}
 
-		// 2. GOL logic
-		// y values indicate that GOL logic shouldn't happen on the first and last row
+	// Slices for receiving channels for top and bottom edge
+	topEdge := make([]byte, p.imageWidth)
+	bottomEdge := make([]byte, p.imageWidth)
+
+
+	// Infinite loop to:
+	// 1. Update send channels
+	// 2. Get things from receive channels
+	// 3. Do GOL logic with receive channels
+	// ???? 4. Send data from source to world
+	for {
+
+		// 1. Update send
+		for x := 0; x < p.imageWidth; x++ {
+			aboveSend <- source[0][x]
+		}
+		for x := 0; x < p.imageWidth; x++ {
+			belowSend <- source[sourceY - 1][x]
+		}
+
+		// 2. Get receive
+		for i := range topEdge {
+			topEdge[i] = <- aboveReceive
+		}
+		for i := range topEdge {
+			bottomEdge[i] = <- belowReceive
+		}
+
+		// 3. GOL logic
 		markedLength := 0
-		for y := 1; y < sourceY - 1; y++ {
+		for y := 0; y < sourceY; y++ {
 			for x := 0; x < p.imageWidth; x++ {
 				AliveCellsAround := 0
 
@@ -94,6 +118,14 @@ func worker(p golParams, b chan byte, c chan cell, l chan int) {
 					for j := -1; j < 2; j++ {
 						if y + i == y && x + j == x {
 							continue
+						} else if y + i < 0  {
+							if topEdge[((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
+								AliveCellsAround++
+							}
+						} else if y + i > (sourceY - 1) {
+							if bottomEdge[((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
+								AliveCellsAround++
+							}
 						} else if source[y + i][((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
 							AliveCellsAround++
 						}

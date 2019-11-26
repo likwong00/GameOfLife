@@ -108,11 +108,22 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	b := make([]chan byte, p.threads)
 	c := make([]chan cell, p.threads)
 	l := make([]chan int, p.threads)
+
+	// Slice of channels of byte for halo implementation
+	above := make([]chan byte, p.threads)
+	below := make([]chan byte, p.threads)
+
+	// Initialise all the channels for communication between workers before calling workers
+	for i:= 0; i < p.threads; i++ {
+		above[i] = make(chan byte)
+		below[i] = make(chan byte)
+	}
+
 	for t := 0; t < p.threads; t++ {
 		b[t] = make(chan byte)
 		c[t] = make(chan cell)
 		l[t] = make(chan int)
-		go worker(p, b[t], c[t], l[t])
+		go worker(p, b[t], c[t], l[t], above[t], below[t], above[(t + 1) % p.threads], below[((t - 1) + p.threads) % p.threads])
 	}
 
 	go distributor(p, dChans, aliveCells, b, c, l, state, pause, quit)

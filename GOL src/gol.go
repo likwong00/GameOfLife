@@ -49,17 +49,17 @@ func worldToSourceData(world [][]byte, p golParams, saveY, startY, endY int, b c
 	}
 }
 
-func sourceToWorldData(world [][]byte, startY int, c <-chan cell, wg *sync.WaitGroup) {
+func sourceToWorldData(p golParams, world [][]byte, startY, endY int, c <-chan byte, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	for y := startY - 1; y < endY; y++ {
+	for y := startY; y < endY; y++ {
 	    for x := 0; x < p.imageWidth; x++ {
 	        world[y][x] = <- c
 	    }
 	}
 }
 
-func worker(p golParams, b chan byte, c chan cell, l chan int, aboveReceive, belowReceive, aboveSend, belowSend chan byte) {
+func worker(p golParams, b chan byte, c chan byte, aboveReceive, belowReceive, aboveSend, belowSend chan byte) {
 	// Markers of which cells should be killed/resurrected
 	var marked []cell
 
@@ -156,7 +156,6 @@ func worker(p golParams, b chan byte, c chan cell, l chan int, aboveReceive, bel
 			}
 		}
 		// Kill/resurrect those marked then reset contents of marked
-		l <- markedLength
 		for _, cell := range marked {
 			source[cell.y][cell.x] = source[cell.y][cell.x] ^ 0xFF
 		}
@@ -164,6 +163,7 @@ func worker(p golParams, b chan byte, c chan cell, l chan int, aboveReceive, bel
 		wg.Done()
         wg.Wait()
 	}
+
 	// Sending source to distributor after going through all the turns
 	for y := 0; y < sourceY; y++ {
 	    for x := 0; x < p.imageWidth; x++ {
@@ -173,7 +173,7 @@ func worker(p golParams, b chan byte, c chan cell, l chan int, aboveReceive, bel
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell, b []chan byte, c []chan cell, l []chan int, state, pause, quit chan bool) {
+func distributor(p golParams, d distributorChans, alive chan []cell, b, c []chan byte, state, pause, quit chan bool) {
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)
 	for i := range world {
@@ -202,11 +202,13 @@ func distributor(p golParams, d distributorChans, alive chan []cell, b []chan by
     endY := saveY
 
     // Send data from world to source
+    wg.Add(p.threads)
     for t := 0; t < p.threads; t++ {
     	go worldToSourceData(world, p, saveY, startY, endY, b[t], &wg)
     	startY = endY
     	endY += saveY
     }
+    wg.Wait()
 
 	// Calculate the new state of Game of Life after the given number of turns.
 	// Send data to workers, do gol logic, receive data to world.
@@ -251,11 +253,12 @@ func distributor(p golParams, d distributorChans, alive chan []cell, b []chan by
 			turns++
 		}
 	}
+	fmt.Println("beirfbwef")
 
 	// Receive data from source to world
 	wg.Add(p.threads)
 	for t := 0; t < p.threads; t++ {
-		go sourceToWorldData(world, length, startY - 1, c[t], &wg)
+		go sourceToWorldData(p, world, startY - 1, endY, c[t], &wg)
 	}
 	wg.Wait()
 

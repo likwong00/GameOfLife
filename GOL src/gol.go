@@ -23,7 +23,11 @@ func readOrWritePgm(c ioCommand, p golParams, d distributorChans, world [][]byte
 		d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight), strconv.Itoa(turns)}, "x")
 
 		// Send the finished state of the world to writePgmImage function
-		d.io.worldState <- world
+		for y := 0; y < p.imageHeight; y++ {
+			for x := 0; x < p.imageWidth; x++ {
+				d.io.worldState <- world[y][x]
+			}
+		}
 	}
 }
 
@@ -235,7 +239,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, b, c []chan
 			go readOrWritePgm(ioOutput, p, d, world, turns)
 
 		case <-pause:
-			go readOrWritePgm(ioOutput, p, d, world, turns)
+			fmt.Println("No. of turns: ", turns)
 
 			var wg sync.WaitGroup
 			wg.Add(1)

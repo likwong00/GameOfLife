@@ -67,6 +67,32 @@ type ioChans struct {
 	distributor ioToDistributor
 }
 
+// Take multiple inputs and send all outputs one by one
+func fanInOutAll(in []chan struct{}, out chan struct{}, amount int)  {
+	for  {
+		for i := 0; i < amount; i++ {
+			out<- <-in[i]
+		}
+	}
+}
+
+// (Numbers) Take multiple inputs and send all outputs one by one
+func fanInOutAllNum(in []chan int, out chan int, amount int)  {
+	for i := 0; i < amount; i++ {
+		out<- <-in[i]
+	}
+}
+
+// Take multiple inputs and send a single output
+func fanInOutOne(in []chan struct{}, out chan struct{}, amount int) {
+	i := 0
+	for i < amount - 1 {
+		<-in[i]
+		i++
+	}
+	out<- <-in[i]
+}
+
 // gameOfLife is the function called by the testing framework.
 // It makes some channels and starts relevant goroutines.
 // It places the created channels in the relevant structs.
@@ -100,7 +126,11 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 
 	// Channels for keyboard commands and ticker
 	tick := make([]chan struct{}, p.threads)
-	aliveNum := make([]chan int, p.threads)
+	aliveNumSlice := make([]chan int, p.threads)
+	aliveNum := make(chan int)
+	completeFromWorkers := make([]chan struct{}, p.threads)
+	completeToDistributor := make(chan struct{})
+
 	//state := make(chan bool)
 	//	//pause := make(chan bool)
 	//	//quit := make(chan bool)
@@ -109,15 +139,19 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	aComs := make([]chan byte, p.threads)
 	bComs := make([]chan byte, p.threads)
 
-	// Initialise keyboard command and ticker channels
+	// Initialise keyboard command and ticker slice channels
 	// Initialise all the channels for communication between workers before calling workers
 	for t := 0; t < p.threads; t++ {
 		tick[t] = make(chan struct{})
-		aliveNum[t] = make(chan int)
+		aliveNumSlice[t] = make(chan int)
+		completeFromWorkers[t] = make(chan struct{})
 
 		aComs[t] = make(chan byte)
 		bComs[t] = make(chan byte)
 	}
+
+	// Fan in channels
+	go fanInOutOne(completeFromWorkers, completeToDistributor, p.threads)
 
 	// -- GOL --
 	// Make a slice of channels to send/receive data
@@ -127,11 +161,12 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 		// If worker is even, send halos first
 		c[t] = make(chan byte)
 		go worker(p, c[t],
-			tick[t], aliveNum[t],
+			tick[t], aliveNumSlice[t], completeFromWorkers[t],
 			(t % 2) == 0, aComs[((t - 1) + p.threads) % p.threads], bComs[(t + 1) % p.threads], aComs[t], bComs[t])
 	}
 
-	go distributor(p, dChans, aliveCells, c)
+	go distributor(p, dChans, aliveCells, c,
+		completeToDistributor)
 	go pgmIo(p, ioChans)
 
 	// -- Keyboard commands and ticker --
@@ -152,21 +187,24 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 			//	}
 
 			case <-ticker.C:
-				a := 0
-				for t := 0; t < p.threads; t++ {
-					tick[t] <- struct {}{}
-					a += <-aliveNum[t]
-				}
-				fmt.Println("No. of alive cells: ", a)
+				go func() {
+					go fanInOutAllNum(aliveNumSlice, aliveNum, p.threads)
+					a := 0
+					for t := 0; t < p.threads; t++ {
+						tick[t] <- struct {}{}
+						a += <-aliveNum
+					}
+					fmt.Println("No. of alive cells: ", a)
+				}()
 
 			case alive := <-aliveCells:
 				return alive
 			}
 		}
-	} else {
-		alive := <-aliveCells
-		return alive
 	}
+
+	alive := <-aliveCells
+	return alive
 }
 
 // main is the function called when starting Game of Life with 'make gol'
@@ -195,7 +233,7 @@ func main() {
 
 	flag.Parse()
 
-	params.turns = 9999999999999
+	params.turns = 10000
 
 	startControlServer(params)
 	go getKeyboardCommand(key)

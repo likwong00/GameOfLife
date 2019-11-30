@@ -51,7 +51,7 @@ func sourceToWorldData(world [][]byte, p golParams, startY, endY int, c <-chan b
 }
 
 func worker(p golParams, c chan byte,
-	tick chan struct{}, aliveNum chan int,
+	tick chan struct{}, aliveNum chan int, complete chan struct{},
 	sendFirst bool, aboveSend, belowSend chan<- byte, belowReceive, aboveReceive <-chan byte) {
 	// Markers of which cells should be killed/resurrected
 	var marked []cell
@@ -90,6 +90,13 @@ func worker(p golParams, c chan byte,
 				}
 			}
 			aliveNum <- a
+
+		//case <-state:
+		//	for y := 0; y < sourceY; y++ {
+		//		for x := 0; x < p.imageWidth; x++ {
+		//			c <- source[y][x]
+		//		}
+		//	}
 
 		default:
 			switch sendFirst {
@@ -168,7 +175,8 @@ func worker(p golParams, c chan byte,
 		}
 	}
 
-	// 3. Send data from source to world
+	// Send data from source to world
+	complete <- struct {}{}
 	for y := 0; y < sourceY; y++ {
 		for x := 0; x < p.imageWidth; x++ {
 			c <- source[y][x]
@@ -177,7 +185,8 @@ func worker(p golParams, c chan byte,
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell, c []chan byte) {
+func distributor(p golParams, d distributorChans, alive chan []cell, c []chan byte,
+	complete chan struct{}) {
 
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)
@@ -216,9 +225,28 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 
 	// Wait until all workers have completed source
 	wgData.Wait()
-
 	startY = 0
 	endY = saveY
+
+	loop: for {
+		select {
+		//case <-state:
+		//	wgData.Add(p.threads)
+		//	for t := 0; t < p.threads; t++ {
+		//		go sourceToWorldData(world, p, startY, endY, c[t], &wgData)
+		//		startY = endY
+		//		endY += saveY
+		//	}
+		//	wgData.Wait()
+		//	startY = 0
+		//	endY = saveY
+		//
+		//	readOrWritePgm(ioOutput, p, d, world, turns)
+
+		case <-complete:
+			break loop
+		}
+	}
 
 	// Receive data from source to world
 	wgData.Add(p.threads)
@@ -228,50 +256,6 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 		endY += saveY
 	}
 	wgData.Wait()
-
-	// Calculate the new state of Game of Life after the given number of turns.
-	// Send data to workers, do gol logic, receive data to world.
-	// for loops can be "named". This is used to break out of the loop when we signal to quit
-	//turns := 0
-	//currentAlive := 0
-	//timer := time.After(2 * time.Second)
-	//loop : for turns < p.turns {
-	//	select {
-	//	// Timer for every 2 seconds
-	//	case <-timer:
-	//		for y := 0; y < p.imageHeight; y++ {
-	//			for x := 0; x < p.imageWidth; x++ {
-	//				if world[y][x] != 0 {
-	//					currentAlive++
-	//				}
-	//			}
-	//		}
-	//
-	//		fmt.Println("No. of cells alive: ", currentAlive)
-	//		timer = time.After(2 * time.Second)
-	//
-	//	case <-state:
-	//		go readOrWritePgm(ioOutput, p, d, world, turns)
-	//
-	//	case <-pause:
-	//		go readOrWritePgm(ioOutput, p, d, world, turns)
-	//
-	//		var wg sync.WaitGroup
-	//		wg.Add(1)
-	//		go func() {
-	//			<-pause
-	//			fmt.Println("Continuing")
-	//			wg.Done()
-	//		}()
-	//		wg.Wait()
-	//
-	//	case <-quit:
-	//		break loop
-	//
-	//	default:
-	//		turns++
-	//	}
-	//}
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell

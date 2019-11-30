@@ -2,7 +2,8 @@ package main
 
 import (
 	"flag"
-	"unicode"
+	"fmt"
+	"time"
 )
 
 // golParams provides the details of how to run the Game of Life and which image to load.
@@ -97,17 +98,23 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 
 	aliveCells := make(chan []cell)
 
-	// Channels for keyboard commands
-	state := make(chan bool)
-	pause := make(chan bool)
-	quit := make(chan bool)
+	// Channels for keyboard commands and ticker
+	tick := make([]chan struct{}, p.threads)
+	aliveNum := make([]chan int, p.threads)
+	//state := make(chan bool)
+	//	//pause := make(chan bool)
+	//	//quit := make(chan bool)
 
 	// Slice of channels of byte for halo implementation
 	aComs := make([]chan byte, p.threads)
 	bComs := make([]chan byte, p.threads)
 
+	// Initialise keyboard command and ticker channels
 	// Initialise all the channels for communication between workers before calling workers
 	for t := 0; t < p.threads; t++ {
+		tick[t] = make(chan struct{})
+		aliveNum[t] = make(chan int)
+
 		aComs[t] = make(chan byte)
 		bComs[t] = make(chan byte)
 	}
@@ -119,29 +126,39 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	for t := 0; t < p.threads; t++ {
 		// If worker is even, send halos first
 		c[t] = make(chan byte)
-		go worker(p, c[t], (t % 2) == 0,
-			aComs[((t - 1) + p.threads) % p.threads], bComs[(t + 1) % p.threads], aComs[t], bComs[t])
+		go worker(p, c[t],
+			tick[t], aliveNum[t],
+			(t % 2) == 0, aComs[((t - 1) + p.threads) % p.threads], bComs[(t + 1) % p.threads], aComs[t], bComs[t])
 	}
 
-	go distributor(p, dChans, aliveCells, c, state, pause, quit)
+	go distributor(p, dChans, aliveCells, c)
 	go pgmIo(p, ioChans)
 
-	// -- Keyboard commands --
+	// -- Keyboard commands and ticker --
+	ticker := time.NewTicker(2 * time.Second)
 	if keyChan != nil {
 		for {
 			select {
-			case k := <-keyChan:
-				switch unicode.ToLower(k) {
-				case 's':
-					state <- true
-				case 'p':
-					pause <- true
-				case 'q':
-					quit <- true
-					alive := <-aliveCells
-					return alive
+			//case k := <-keyChan:
+			//	switch unicode.ToLower(k) {
+			//	case 's':
+			//		state <- true
+			//	case 'p':
+			//		pause <- true
+			//	case 'q':
+			//		quit <- true
+			//		alive := <-aliveCells
+			//		return alive
+			//	}
+
+			case <-ticker.C:
+				a := 0
+				for t := 0; t < p.threads; t++ {
+					tick[t] <- struct {}{}
+					a += <-aliveNum[t]
 				}
-				
+				fmt.Println("No. of alive cells: ", a)
+
 			case alive := <-aliveCells:
 				return alive
 			}

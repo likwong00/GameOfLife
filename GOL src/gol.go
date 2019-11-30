@@ -50,8 +50,9 @@ func sourceToWorldData(world [][]byte, p golParams, startY, endY int, c <-chan b
 	}
 }
 
-func worker(p golParams, c chan byte, sendFirst bool,
-	aboveSend, belowSend chan<- byte, belowReceive, aboveReceive <-chan byte) {
+func worker(p golParams, c chan byte,
+	tick chan struct{}, aliveNum chan int,
+	sendFirst bool, aboveSend, belowSend chan<- byte, belowReceive, aboveReceive <-chan byte) {
 	// Markers of which cells should be killed/resurrected
 	var marked []cell
 
@@ -77,79 +78,94 @@ func worker(p golParams, c chan byte, sendFirst bool,
 	// If sendFirst true, this worker sends first then receives halos later
 	// Do GOL logic
 	for turns := 0; turns < p.turns; turns++ {
-		switch sendFirst {
-		case true:
-			// Send halos to neighbour workers
-			for x := 0; x < p.imageWidth; x++  {
-				aboveSend <- source[0][x]
-				belowSend <- source[sourceY - 1][x]
+		select {
+		// Every 2 seconds, send number of cells alive
+		case <-tick:
+			a := 0
+			for y := 0; y < sourceY; y++ {
+				for x := 0; x < p.imageWidth; x++ {
+					if source[y][x] != 0 {
+						a++
+					}
+				}
+			}
+			aliveNum <- a
+
+		default:
+			switch sendFirst {
+			case true:
+				// Send halos to neighbour workers
+				for x := 0; x < p.imageWidth; x++  {
+					aboveSend <- source[0][x]
+					belowSend <- source[sourceY - 1][x]
+				}
+
+				// Receive halos from neighbour workers
+				for x := 0; x < p.imageWidth; x++  {
+					hAbove[x] = <-aboveReceive
+					hBelow[x] = <-belowReceive
+				}
+
+			case false:
+				// Receive halos from neighbour workers
+				for x := 0; x < p.imageWidth; x++  {
+					hBelow[x] = <-belowReceive
+					hAbove[x] = <-aboveReceive
+				}
+
+				// Send halos to neighbour workers
+				for x := 0; x < p.imageWidth; x++  {
+					belowSend <- source[sourceY - 1][x]
+					aboveSend <- source[0][x]
+				}
 			}
 
-			// Receive halos from neighbour workers
-			for x := 0; x < p.imageWidth; x++  {
-				hAbove[x] = <-aboveReceive
-				hBelow[x] = <-belowReceive
-			}
+			// GOL logic
+			for y := 0; y < sourceY; y++ {
+				for x := 0; x < p.imageWidth; x++ {
+					AliveCellsAround := 0
 
-		case false:
-			// Receive halos from neighbour workers
-			for x := 0; x < p.imageWidth; x++  {
-				hBelow[x] = <-belowReceive
-				hAbove[x] = <-aboveReceive
-			}
-
-			// Send halos to neighbour workers
-			for x := 0; x < p.imageWidth; x++  {
-				belowSend <- source[sourceY - 1][x]
-				aboveSend <- source[0][x]
-			}
-		}
-
-		// GOL logic
-		for y := 0; y < sourceY; y++ {
-			for x := 0; x < p.imageWidth; x++ {
-				AliveCellsAround := 0
-
-				// Check for how many alive cells are around the original cell (Ignore the original cell)
-				// Adding the width and then modding it by them deals with out of bound issues
-				for i := -1; i < 2; i++ {
-					for j := -1; j < 2; j++ {
-						if y + i == y && x + j == x {
-							continue
-						} else if y + i < 0  {
-							if hAbove[((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
+					// Check for how many alive cells are around the original cell (Ignore the original cell)
+					// Adding the width and then modding it by them deals with out of bound issues
+					for i := -1; i < 2; i++ {
+						for j := -1; j < 2; j++ {
+							if y + i == y && x + j == x {
+								continue
+							} else if y + i < 0  {
+								if hAbove[((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
+									AliveCellsAround++
+								}
+							} else if y + i == sourceY {
+								if hBelow[((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
+									AliveCellsAround++
+								}
+							} else if source[y + i][((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
 								AliveCellsAround++
 							}
-						} else if y + i == sourceY {
-							if hBelow[((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
-								AliveCellsAround++
-							}
-						} else if source[y + i][((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
-							AliveCellsAround++
+						}
+					}
+
+					// Cases for alive and dead original cells
+					// 'break' isn't needed for Golang switch
+					switch source[y][x] {
+					case 0xFF: // If cell alive
+						if AliveCellsAround < 2 || AliveCellsAround > 3 {
+							marked = append(marked, cell{x, y})
+						}
+					case 0x00: // If cell dead
+						if AliveCellsAround == 3 {
+							marked = append(marked, cell{x, y})
 						}
 					}
 				}
-
-				// Cases for alive and dead original cells
-				// 'break' isn't needed for Golang switch
-				switch source[y][x] {
-				case 0xFF: // If cell alive
-					if AliveCellsAround < 2 || AliveCellsAround > 3 {
-						marked = append(marked, cell{x, y})
-					}
-				case 0x00: // If cell dead
-					if AliveCellsAround == 3 {
-						marked = append(marked, cell{x, y})
-					}
-				}
 			}
-		}
 
-		// Kill/resurrect those marked then reset contents of marked
-		for _, cell := range marked {
-			source[cell.y][cell.x] = source[cell.y][cell.x] ^ 0xFF
+			// Kill/resurrect those marked then reset contents of marked
+			for _, cell := range marked {
+				source[cell.y][cell.x] = source[cell.y][cell.x] ^ 0xFF
+			}
+			marked = nil
 		}
-		marked = nil
 	}
 
 	// 3. Send data from source to world
@@ -161,8 +177,7 @@ func worker(p golParams, c chan byte, sendFirst bool,
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell, c []chan byte,
-	state, pause, quit <-chan bool) {
+func distributor(p golParams, d distributorChans, alive chan []cell, c []chan byte) {
 
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)

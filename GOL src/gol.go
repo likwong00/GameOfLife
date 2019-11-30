@@ -51,7 +51,7 @@ func sourceToWorldData(world [][]byte, p golParams, startY, endY int, c <-chan b
 }
 
 func worker(p golParams, c chan byte,
-	tick chan struct{}, aliveNum chan int, complete chan struct{},
+	tick chan struct{}, aliveNum chan int, complete, state chan struct{}, turn chan int,
 	sendFirst bool, aboveSend, belowSend chan<- byte, belowReceive, aboveReceive <-chan byte) {
 	// Markers of which cells should be killed/resurrected
 	var marked []cell
@@ -91,12 +91,13 @@ func worker(p golParams, c chan byte,
 			}
 			aliveNum <- a
 
-		//case <-state:
-		//	for y := 0; y < sourceY; y++ {
-		//		for x := 0; x < p.imageWidth; x++ {
-		//			c <- source[y][x]
-		//		}
-		//	}
+		case <-state:
+			for y := 0; y < sourceY; y++ {
+				for x := 0; x < p.imageWidth; x++ {
+					c <- source[y][x]
+				}
+			}
+			turn <- turns
 
 		default:
 			switch sendFirst {
@@ -186,7 +187,7 @@ func worker(p golParams, c chan byte,
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p golParams, d distributorChans, alive chan []cell, c []chan byte,
-	complete chan struct{}) {
+	complete, state chan struct{}, turn chan int) {
 
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)
@@ -230,18 +231,18 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 
 	loop: for {
 		select {
-		//case <-state:
-		//	wgData.Add(p.threads)
-		//	for t := 0; t < p.threads; t++ {
-		//		go sourceToWorldData(world, p, startY, endY, c[t], &wgData)
-		//		startY = endY
-		//		endY += saveY
-		//	}
-		//	wgData.Wait()
-		//	startY = 0
-		//	endY = saveY
-		//
-		//	readOrWritePgm(ioOutput, p, d, world, turns)
+		case <-state:
+			wgData.Add(p.threads)
+			for t := 0; t < p.threads; t++ {
+				go sourceToWorldData(world, p, startY, endY, c[t], &wgData)
+				startY = endY
+				endY += saveY
+			}
+			wgData.Wait()
+			startY = 0
+			endY = saveY
+
+			readOrWritePgm(ioOutput, p, d, world, <-turn)
 
 		case <-complete:
 			break loop

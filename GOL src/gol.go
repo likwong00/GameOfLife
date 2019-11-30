@@ -21,39 +21,39 @@ func readOrWritePgm(c ioCommand, p golParams, d distributorChans, world [][]byte
 		d.io.filename <- strings.Join([]string{strconv.Itoa(p.imageWidth), strconv.Itoa(p.imageHeight), strconv.Itoa(turns)}, "x")
 
 		// Send the finished state of the world to writePgmImage function
-		for y := 0; y < p.imageHeight; y++ {
-			for x := 0; x < p.imageWidth; x++ {
-				d.io.worldState <- world[y][x]
-			}
-		}
+		// TODO: Change this to non memshare version
+		d.io.worldState <- world
 	}
 }
 
-func worldToSourceData(world [][]byte, p golParams, startY, endY int, b chan<- byte, wg *sync.WaitGroup) {
+func worldToSourceData(world [][]byte, p golParams, startY, endY int, c chan<- byte, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for y := startY; y < endY; y++ {
 		for x := 0; x < p.imageWidth; x++ {
-			b <- world[y][x]
+			c <- world[y][x]
 		}
 	}
 }
 
-func sourceToWorldData(world [][]byte, p golParams, startY, endY int, b <-chan byte, wg *sync.WaitGroup) {
+func sourceToWorldData(world [][]byte, p golParams, startY, endY int, c <-chan byte, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for y := startY; y < endY; y++ {
-	    for x := 0; x < p.imageWidth; x++ {
-	        world[y][x] = <- b
-	    }
+		for x := 0; x < p.imageWidth; x++ {
+			world[y][x] = <-c
+		}
 	}
 }
 
-func worker(p golParams, b chan byte, c chan byte, aboveReceive, belowReceive, aboveSend, belowSend chan byte) {
+func worker(p golParams, c chan byte, sendFirst bool,
+	aboveSend, belowSend chan<- byte, belowReceive, aboveReceive <-chan byte) {
 	// Markers of which cells should be killed/resurrected
 	var marked []cell
 
-    var wg sync.WaitGroup
+	// Create halos
+	hAbove := make([]byte, p.imageWidth)
+	hBelow := make([]byte, p.imageWidth)
 
 	// Create source slice
 	sourceY := p.imageHeight/p.threads
@@ -65,45 +65,43 @@ func worker(p golParams, b chan byte, c chan byte, aboveReceive, belowReceive, a
 	// Receive data from world
 	for y := 0; y < sourceY; y++ {
 		for x := 0; x < p.imageWidth; x++ {
-			source[y][x] = <- b
+			source[y][x] = <-c
 		}
 	}
 
-	// Slices for receiving channels for top and bottom edge
-	topEdge := make([]byte, p.imageWidth)
-	bottomEdge := make([]byte, p.imageWidth)
+	// Loop to:
+	// If sendFirst true, this worker sends first then receives halos later
+	// Do GOL logic
+	for turns := 0; turns < p.turns; turns++ {
+		switch sendFirst {
+		case true:
+			// Send halos to neighbour workers
+			for x := 0; x < p.imageWidth; x++  {
+				aboveSend <- source[0][x]
+				belowSend <- source[sourceY - 1][x]
+			}
 
+			// Receive halos from neighbour workers
+			for x := 0; x < p.imageWidth; x++  {
+				hAbove[x] = <-aboveReceive
+				hBelow[x] = <-belowReceive
+			}
 
-	// Infinite loop to:
-	// 1. Update send channels
-	// 2. Get things from receive channels
-	// 3. Do GOL logic with receive channels
-	// ???? 4. Send data from source to world
-	for turns := 0; turns < p.turns; turns++{
+		case false:
+			// Receive halos from neighbour workers
+			for x := 0; x < p.imageWidth; x++  {
+				hBelow[x] = <-belowReceive
+				hAbove[x] = <-aboveReceive
+			}
 
-		// 1. Update send
-		// TODO: Make wg actually coordinate with workers
-		wg.Add(1)
-		for x := 0; x < p.imageWidth; x++ {
-			aboveSend <- source[0][x]
+			// Send halos to neighbour workers
+			for x := 0; x < p.imageWidth; x++  {
+				belowSend <- source[sourceY - 1][x]
+				aboveSend <- source[0][x]
+			}
 		}
-		for x := 0; x < p.imageWidth; x++ {
-			belowSend <- source[sourceY - 1][x]
-		}
 
-		// 2. Get receive
-		for i := range topEdge {
-			topEdge[i] = <- aboveReceive
-		}
-		for i := range topEdge {
-			bottomEdge[i] = <- belowReceive
-		}
-		wg.Done()
-		wg.Wait()
-
-		// 3. GOL logic
-		wg.Add(1)
-		markedLength := 0
+		// GOL logic
 		for y := 0; y < sourceY; y++ {
 			for x := 0; x < p.imageWidth; x++ {
 				AliveCellsAround := 0
@@ -115,11 +113,11 @@ func worker(p golParams, b chan byte, c chan byte, aboveReceive, belowReceive, a
 						if y + i == y && x + j == x {
 							continue
 						} else if y + i < 0  {
-							if topEdge[((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
+							if hAbove[((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
 								AliveCellsAround++
 							}
-						} else if y + i > (sourceY - 1) {
-							if bottomEdge[((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
+						} else if y + i == sourceY {
+							if hBelow[((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
 								AliveCellsAround++
 							}
 						} else if source[y + i][((x + j) + p.imageWidth) % p.imageWidth] == 0xFF {
@@ -134,37 +132,33 @@ func worker(p golParams, b chan byte, c chan byte, aboveReceive, belowReceive, a
 				case 0xFF: // If cell alive
 					if AliveCellsAround < 2 || AliveCellsAround > 3 {
 						marked = append(marked, cell{x, y})
-						markedLength++
 					}
 				case 0x00: // If cell dead
 					if AliveCellsAround == 3 {
 						marked = append(marked, cell{x, y})
-						markedLength++
 					}
 				}
 			}
 		}
-		
+
 		// Kill/resurrect those marked then reset contents of marked
 		for _, cell := range marked {
 			source[cell.y][cell.x] = source[cell.y][cell.x] ^ 0xFF
 		}
 		marked = nil
-		wg.Done()
-        wg.Wait()
 	}
 
-	// Sending source to distributor after going through all the turns
+	// 3. Send data from source to world
 	for y := 0; y < sourceY; y++ {
-	    for x := 0; x < p.imageWidth; x++ {
-	        c <- source[y][x]
-	    }
+		for x := 0; x < p.imageWidth; x++ {
+			c <- source[y][x]
+		}
 	}
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell, b, c []chan byte, state, pause, quit chan bool) {
-	var wg sync.WaitGroup
+func distributor(p golParams, d distributorChans, alive chan []cell, c []chan byte,
+	state, pause, quit <-chan bool) {
 
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)
@@ -186,77 +180,79 @@ func distributor(p golParams, d distributorChans, alive chan []cell, b, c []chan
 		}
 	}
 
-    // Initialize values for y values
-    saveY := p.imageHeight/p.threads
-    startY := 0
-    endY := saveY
+	// Initialize values for y values
+	saveY := p.imageHeight/p.threads
+	startY := 0
+	endY := saveY
 
-    // Send data from world to source
-    // TODO: Ask if this is memory sharing as wg is a pointer to a goroutine
-    wg.Add(p.threads)
-    for t := 0; t < p.threads; t++ {
-    	go worldToSourceData(world, p, startY, endY, b[t], &wg)
-    	startY = endY
-    	endY += saveY
-    }
-    wg.Wait()
+	var wgData sync.WaitGroup
+
+	// Send data from world to source
+	wgData.Add(p.threads)
+	for t := 0; t < p.threads; t++ {
+		go worldToSourceData(world, p, startY, endY, c[t], &wgData)
+		startY = endY
+		endY += saveY
+	}
+
+	// Wait until all workers have completed source
+	wgData.Wait()
+
+	startY = 0
+	endY = saveY
+
+	// Receive data from source to world
+	wgData.Add(p.threads)
+	for t := 0; t < p.threads; t++ {
+		go sourceToWorldData(world, p, startY, endY, c[t], &wgData)
+		startY = endY
+		endY += saveY
+	}
+	wgData.Wait()
 
 	// Calculate the new state of Game of Life after the given number of turns.
 	// Send data to workers, do gol logic, receive data to world.
 	// for loops can be "named". This is used to break out of the loop when we signal to quit
-	turns := 0
-	// TODO: Uncomment timer and fix later
+	//turns := 0
+	//currentAlive := 0
 	//timer := time.After(2 * time.Second)
-	loop : for turns < p.turns {
-		select {
-		// Timer for every 2 seconds
-		//case <-timer:
-		//	currentAlive := 0
-		//	for y := 0; y < p.imageHeight; y++ {
-		//		for x := 0; x < p.imageWidth; x++ {
-		//			if world[y][x] != 0 {
-		//				currentAlive++
-		//			}
-		//		}
-		//	}
-		//
-		//	fmt.Println("No. of cells alive: ", currentAlive)
-		//	timer = time.After(2 * time.Second)
-
-		case <-state:
-			go readOrWritePgm(ioOutput, p, d, world, turns)
-
-		case <-pause:
-			fmt.Println("No. of turns: ", turns)
-
-			var wg sync.WaitGroup
-			wg.Add(1)
-			go func() {
-				<-pause
-				fmt.Println("Continuing")
-				wg.Done()
-			}()
-			wg.Wait()
-
-		case <-quit:
-			break loop
-
-		default:
-			turns++
-		}
-	}
-	fmt.Println("beirfbwef")
-
-	// Receive data from source to world
-	startY = 0
-	endY = saveY
-	wg.Add(p.threads)
-	for t := 0; t < p.threads; t++ {
-		go sourceToWorldData(world, p, startY, endY, c[t], &wg)
-		startY = endY
-		endY += saveY
-	}
-	wg.Wait()
+	//loop : for turns < p.turns {
+	//	select {
+	//	// Timer for every 2 seconds
+	//	case <-timer:
+	//		for y := 0; y < p.imageHeight; y++ {
+	//			for x := 0; x < p.imageWidth; x++ {
+	//				if world[y][x] != 0 {
+	//					currentAlive++
+	//				}
+	//			}
+	//		}
+	//
+	//		fmt.Println("No. of cells alive: ", currentAlive)
+	//		timer = time.After(2 * time.Second)
+	//
+	//	case <-state:
+	//		go readOrWritePgm(ioOutput, p, d, world, turns)
+	//
+	//	case <-pause:
+	//		go readOrWritePgm(ioOutput, p, d, world, turns)
+	//
+	//		var wg sync.WaitGroup
+	//		wg.Add(1)
+	//		go func() {
+	//			<-pause
+	//			fmt.Println("Continuing")
+	//			wg.Done()
+	//		}()
+	//		wg.Wait()
+	//
+	//	case <-quit:
+	//		break loop
+	//
+	//	default:
+	//		turns++
+	//	}
+	//}
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell
@@ -270,7 +266,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, b, c []chan
 	}
 
 	// Write image
-	readOrWritePgm(ioOutput, p, d, world, turns)
+	readOrWritePgm(ioOutput, p, d, world, p.turns)
 
 	// Make sure that the Io has finished any output before exiting.
 	d.io.command <- ioCheckIdle

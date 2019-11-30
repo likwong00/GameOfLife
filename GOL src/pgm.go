@@ -37,9 +37,11 @@ func writePgmImage(p golParams, i ioChans) {
 		world[i] = make([]byte, p.imageWidth)
 	}
 
+	// TODO: Ask if this is memory sharing and if we need to send byte by byte instead
+	worldState := <- i.distributor.worldState
 	for y := 0; y < p.imageHeight; y++ {
 		for x := 0; x < p.imageWidth; x++ {
-			world[y][x] = <- i.distributor.worldState
+			world[y][x] = worldState[y][x]
 		}
 	}
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"sync"
 	"unicode"
 )
 
@@ -41,7 +42,7 @@ type distributorToIo struct {
 	filename  chan<- string
 	inputVal  <-chan uint8
 
-	worldState chan<- byte
+	worldState chan<- [][]byte
 }
 
 // ioToDistributor defines all chans that the io goroutine will have to communicate with the distributor goroutine.
@@ -53,7 +54,7 @@ type ioToDistributor struct {
 	filename  <-chan string
 	inputVal  chan<- uint8
 
-	worldState <-chan byte
+	worldState <-chan [][]byte
 }
 
 // distributorChans stores all the chans that the distributor goroutine will use.
@@ -66,15 +67,29 @@ type ioChans struct {
 	distributor ioToDistributor
 }
 
+// Signals whether the byte should be received from halos above or below
+// true if above
+type byteSignal struct {
+	byte byte
+	signal bool
+}
+
+func coordinateWorkers(p golParams, wgWorker *sync.WaitGroup) {
+	for {
+		wgWorker.Add(p.threads / 2)
+		wgWorker.Wait()
+	}
+}
+
 // gameOfLife is the function called by the testing framework.
 // It makes some channels and starts relevant goroutines.
 // It places the created channels in the relevant structs.
 // It returns an array of alive cells returned by the distributor.
 func gameOfLife(p golParams, keyChan <-chan rune) []cell {
+	// Default channels from structs
 	var dChans distributorChans
 	var ioChans ioChans
 
-	// Channels from structs
 	ioCommand := make(chan ioCommand)
 	dChans.io.command = ioCommand
 	ioChans.distributor.command = ioCommand
@@ -91,53 +106,58 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	dChans.io.inputVal = inputVal
 	ioChans.distributor.inputVal = inputVal
 
-	worldState := make(chan byte)
+	worldState := make(chan [][]byte)
 	dChans.io.worldState = worldState
 	ioChans.distributor.worldState = worldState
+
+	aliveCells := make(chan []cell)
 
 	// Channels for keyboard commands
 	state := make(chan bool)
 	pause := make(chan bool)
 	quit := make(chan bool)
 
-	aliveCells := make(chan []cell)
+	// Slice of channels of byte for halo implementation
+	aComs := make([]chan byte, p.threads)
+	bComs := make([]chan byte, p.threads)
+
+	// Initialise all the channels for communication between workers before calling workers
+	for t := 0; t < p.threads; t++ {
+		aComs[t] = make(chan byte)
+		bComs[t] = make(chan byte)
+	}
 
 	// -- GOL --
 	// Make a slice of channels to send/receive data
 	// Instantiate workers
-	b := make([]chan byte, p.threads)
 	c := make([]chan byte, p.threads)
-
-	// Slice of channels of byte for halo implementation
-	above := make([]chan byte, p.threads)
-	below := make([]chan byte, p.threads)
-
-	// Initialise all the channels for communication between workers before calling workers
-	for i:= 0; i < p.threads; i++ {
-		above[i] = make(chan byte)
-		below[i] = make(chan byte)
-	}
-
 	for t := 0; t < p.threads; t++ {
-		b[t] = make(chan byte)
+		// If worker is even, send halos first
 		c[t] = make(chan byte)
-		go worker(p, b[t], c[t], above[t], below[t], above[(t + 1) % p.threads], below[((t - 1) + p.threads) % p.threads])
+		go worker(p, c[t], (t % 2) == 0,
+			aComs[((t - 1) + p.threads) % p.threads], bComs[(t + 1) % p.threads], aComs[t], bComs[t])
 	}
 
-	go distributor(p, dChans, aliveCells, b, c, state, pause, quit)
+	go distributor(p, dChans, aliveCells, c, state, pause, quit)
 	go pgmIo(p, ioChans)
 
 	// -- Keyboard commands --
 	if keyChan != nil {
 		for {
-			switch unicode.ToLower(<-keyChan) {
-			case 's':
-				state <- true
-			case 'p':
-				pause <- true
-			case 'q':
-				quit <- true
-				alive := <-aliveCells
+			select {
+			case k := <-keyChan:
+				switch unicode.ToLower(k) {
+				case 's':
+					state <- true
+				case 'p':
+					pause <- true
+				case 'q':
+					quit <- true
+					alive := <-aliveCells
+					return alive
+				}
+				
+			case alive := <-aliveCells:
 				return alive
 			}
 		}

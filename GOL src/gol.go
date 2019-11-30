@@ -22,7 +22,11 @@ func readOrWritePgm(c ioCommand, p golParams, d distributorChans, world [][]byte
 
 		// Send the finished state of the world to writePgmImage function
 		// TODO: Change this to non memshare version
-		d.io.worldState <- world
+		for y := 0; y < p.imageHeight; y++ {
+			for x := 0; x < p.imageWidth; x++ {
+				d.io.worldState <- world[y][x]
+			}
+		}
 	}
 }
 

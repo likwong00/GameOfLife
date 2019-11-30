@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"sync"
 	"unicode"
 )
 
@@ -42,7 +41,7 @@ type distributorToIo struct {
 	filename  chan<- string
 	inputVal  <-chan uint8
 
-	worldState chan<- [][]byte
+	worldState chan<- byte
 }
 
 // ioToDistributor defines all chans that the io goroutine will have to communicate with the distributor goroutine.
@@ -54,7 +53,7 @@ type ioToDistributor struct {
 	filename  <-chan string
 	inputVal  chan<- uint8
 
-	worldState <-chan [][]byte
+	worldState <-chan byte
 }
 
 // distributorChans stores all the chans that the distributor goroutine will use.
@@ -65,20 +64,6 @@ type distributorChans struct {
 // ioChans stores all the chans that the io goroutine will use.
 type ioChans struct {
 	distributor ioToDistributor
-}
-
-// Signals whether the byte should be received from halos above or below
-// true if above
-type byteSignal struct {
-	byte byte
-	signal bool
-}
-
-func coordinateWorkers(p golParams, wgWorker *sync.WaitGroup) {
-	for {
-		wgWorker.Add(p.threads / 2)
-		wgWorker.Wait()
-	}
 }
 
 // gameOfLife is the function called by the testing framework.
@@ -106,7 +91,7 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	dChans.io.inputVal = inputVal
 	ioChans.distributor.inputVal = inputVal
 
-	worldState := make(chan [][]byte)
+	worldState := make(chan byte)
 	dChans.io.worldState = worldState
 	ioChans.distributor.worldState = worldState
 

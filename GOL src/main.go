@@ -2,7 +2,7 @@ package main
 
 import (
 	"flag"
-	"fmt"
+	"sync"
 	"time"
 	"unicode"
 )
@@ -86,22 +86,18 @@ func fanInOutAllNum(in []chan int, out chan int, amount int)  {
 
 // Take multiple inputs and send a single output
 func fanInOutOne(in []chan struct{}, out chan struct{}, amount int) {
-	i := 0
-	for i < amount - 1 {
+	for i := 0; i < amount - 1; i++ {
 		<-in[i]
-		i++
 	}
-	out<- <-in[i]
+	out<- <-in[amount - 1]
 }
 
 // Take multiple inputs and send a single output
 func fanInOutOneNum(in []chan int, out chan int, amount int) {
-	i := 0
-	for i < amount - 1 {
+	for i := 0; i < amount - 1; i++ {
 		<-in[i]
-		i++
 	}
-	out<- <-in[i]
+	out<- <-in[amount - 1]
 }
 
 // gameOfLife is the function called by the testing framework.
@@ -109,6 +105,9 @@ func fanInOutOneNum(in []chan int, out chan int, amount int) {
 // It places the created channels in the relevant structs.
 // It returns an array of alive cells returned by the distributor.
 func gameOfLife(p golParams, keyChan <-chan rune) []cell {
+	var wg sync.WaitGroup
+	wg.Add(p.threads)
+
 	// Default channels from structs
 	var dChans distributorChans
 	var ioChans ioChans
@@ -136,15 +135,15 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	aliveCells := make(chan []cell)
 
 	// Channels for keyboard commands and ticker
-	tick := make([]chan struct{}, p.threads)
-	aliveNumSlice := make([]chan int, p.threads)
-	aliveNum := make(chan int)
+	tickToWorkers := make([]chan struct{}, p.threads)
+	tickToDistributor := make(chan struct{})
 
 	completeFromWorkers := make([]chan struct{}, p.threads)
 	completeToDistributor := make(chan struct{})
 
-	stateFromWorkers := make([]chan struct{}, p.threads)
+	stateToWorkers := make([]chan struct{}, p.threads)
 	stateToDistributor := make(chan struct{})
+
 	turnsFromWorkers := make([]chan int, p.threads)
 	turnsToDistributor := make(chan int)
 	//	//pause := make(chan bool)
@@ -157,10 +156,9 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	// Initialise keyboard command and ticker slice channels
 	// Initialise all the channels for communication between workers before calling workers
 	for t := 0; t < p.threads; t++ {
-		tick[t] = make(chan struct{})
-		aliveNumSlice[t] = make(chan int)
+		tickToWorkers[t] = make(chan struct{})
 		completeFromWorkers[t] = make(chan struct{})
-		stateFromWorkers[t] = make(chan struct{})
+		stateToWorkers[t] = make(chan struct{})
 		turnsFromWorkers[t] = make(chan int)
 
 		aComs[t] = make(chan byte)
@@ -171,7 +169,6 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	go fanInOutOne(completeFromWorkers, completeToDistributor, p.threads)
 	go func() {
 		for {
-			fanInOutOne(stateFromWorkers, stateToDistributor, p.threads)
 			fanInOutOneNum(turnsFromWorkers, turnsToDistributor, p.threads)
 		}
 	}()
@@ -184,12 +181,12 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 		// If worker is even, send halos first
 		c[t] = make(chan byte)
 		go worker(p, c[t],
-			tick[t], aliveNumSlice[t], completeFromWorkers[t], stateFromWorkers[t], turnsFromWorkers[t],
+			tickToWorkers[t], completeFromWorkers[t], stateToWorkers[t], turnsFromWorkers[t],
 			(t % 2) == 0, aComs[((t - 1) + p.threads) % p.threads], bComs[(t + 1) % p.threads], aComs[t], bComs[t])
 	}
 
 	go distributor(p, dChans, aliveCells, c,
-		completeToDistributor, stateToDistributor, turnsToDistributor)
+		tickToDistributor, completeToDistributor, stateToDistributor, turnsToDistributor)
 	go pgmIo(p, ioChans)
 
 	// -- Keyboard commands and ticker --
@@ -200,27 +197,30 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 			case k := <-keyChan:
 				switch unicode.ToLower(k) {
 				case 's':
+					stateToDistributor <- struct{}{}
 					for t := 0; t < p.threads; t++ {
-						stateFromWorkers[t] <- struct{}{}
+						stateToWorkers[t] <- struct{}{}
 					}
-			//	case 'p':
-			//		pause <- true
+				//case 'p':
+				//	for t := 0; t < p.threads; t++ {
+				//		pauseToWorkers[t] <- struct{}{}
+				//	}
 			//	case 'q':
-			//		quit <- true
+			//		ticker.Stop()
+			//		fmt.Println("Quitting...")
+			//		for t := 0; t < p.threads; t++ {
+			//			quitToWorkers[t] <- struct{}{}
+			//			fmt.Println("wefwefwefewf")
+			//		}
 			//		alive := <-aliveCells
 			//		return alive
 				}
 
 			case <-ticker.C:
-				go func() {
-					go fanInOutAllNum(aliveNumSlice, aliveNum, p.threads)
-					a := 0
-					for t := 0; t < p.threads; t++ {
-						tick[t] <- struct {}{}
-						a += <-aliveNum
-					}
-					fmt.Println("No. of alive cells: ", a)
-				}()
+				tickToDistributor <- struct{}{}
+				for t := 0; t < p.threads; t++ {
+					tickToWorkers[t] <- struct {}{}
+				}
 
 			case alive := <-aliveCells:
 				return alive

@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
+	"unicode"
 )
 
 // Read = ioInput, Write = ioOutput
@@ -50,9 +52,9 @@ func sourceToWorldData(world [][]byte, p golParams, startY, endY int, c <-chan b
 	}
 }
 
-func worker(p golParams, c chan byte,
-	tick, complete, state chan struct{}, turn chan int,
-	sendFirst bool, aboveSend, belowSend chan<- byte, belowReceive, aboveReceive <-chan byte) {
+func worker(p golParams, c chan byte, sendFirst bool,
+	signalWork, signalFinish, signalComplete, state, pause, tick chan struct{}, aliveNum chan int,
+	aboveSend, belowSend chan<- byte, belowReceive, aboveReceive <-chan byte) {
 	// Markers of which cells should be killed/resurrected
 	var marked []cell
 
@@ -77,27 +79,33 @@ func worker(p golParams, c chan byte,
 	// Loop to:
 	// If sendFirst true, this worker sends first then receives halos later
 	// Do GOL logic
-	turns := 0
-	for turns < p.turns {
+	loop: for {
 		select {
-		// Every 2 seconds, send number of cells alive
-		case <-tick:
-			for y := 0; y < sourceY; y++ {
-				for x := 0; x < p.imageWidth; x++ {
-					c <- source[y][x]
-				}
-			}
-
 		case <-state:
 			for y := 0; y < sourceY; y++ {
 				for x := 0; x < p.imageWidth; x++ {
 					c <- source[y][x]
 				}
 			}
-			turn <- turns
 
-		default:
-			turns++
+		case <-pause:
+			<-pause
+
+		case <-signalComplete:
+			break loop
+
+		case <-tick:
+			a := 0
+			for y := 0; y < sourceY; y++ {
+				for x := 0; x < p.imageWidth; x++ {
+					if source[y][x] != 0 {
+						a++
+					}
+				}
+			}
+			aliveNum <- a
+
+		case <-signalWork:
 			switch sendFirst {
 			case true:
 				// Send halos to neighbour workers
@@ -171,22 +179,22 @@ func worker(p golParams, c chan byte,
 				source[cell.y][cell.x] = source[cell.y][cell.x] ^ 0xFF
 			}
 			marked = nil
+			signalFinish <- struct {}{}
 		}
 	}
 
 	// Send data from source to world
-	complete <- struct {}{}
 	for y := 0; y < sourceY; y++ {
 		for x := 0; x < p.imageWidth; x++ {
 			c <- source[y][x]
 		}
 	}
-	turn <- turns
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
 func distributor(p golParams, d distributorChans, alive chan []cell, c []chan byte,
-	tick, complete, state chan struct{}, turn chan int) {
+	keyChan <-chan rune, signalWork, signalFinish, signalComplete, state, pause, tick []chan struct{},
+	aliveNum []chan int) {
 
 	// Create the 2D slice to store the world.
 	world := make([][]byte, p.imageHeight)
@@ -228,45 +236,87 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 	startY = 0
 	endY = saveY
 
-	loop: for {
+	turns := 0
+	ticker := time.NewTicker(2 * time.Second)
+	loop: for turns < p.turns {
 		select {
-		case <-complete:
-			break loop
-
-		case <-tick:
-			wgData.Add(p.threads)
-			for t := 0; t < p.threads; t++ {
-				go sourceToWorldData(world, p, startY, endY, c[t], &wgData)
-				startY = endY
-				endY += saveY
-			}
-			wgData.Wait()
-			startY = 0
-			endY = saveY
-
-			a := 0
-			for y := 0; y < p.imageHeight; y++ {
-				for x := 0; x < p.imageWidth; x++ {
-					if world[y][x] != 0 {
-						a++
-					}
+		case k := <-keyChan:
+			switch unicode.ToLower(k) {
+			case 's':
+				for i := range state {
+					state[i] <- struct{}{}
 				}
+
+				wgData.Add(p.threads)
+				for t := 0; t < p.threads; t++ {
+					go sourceToWorldData(world, p, startY, endY, c[t], &wgData)
+					startY = endY
+					endY += saveY
+				}
+				wgData.Wait()
+				startY = 0
+				endY = saveY
+
+				readOrWritePgm(ioOutput, p, d, world, turns)
+
+			case 'p':
+				fmt.Println("Paused at turn ", turns)
+
+				for i := range pause {
+					pause[i] <- struct{}{}
+				}
+
+				wgData.Add(1)
+				go func() {
+					loop: for {
+						select {
+						case k := <-keyChan:
+							switch unicode.ToLower(k) {
+							case 'p':
+								fmt.Println("Continuing...")
+								for i := range pause {
+									pause[i] <- struct{}{}
+								}
+								wgData.Done()
+								break loop
+
+							default:
+							}
+						}
+					}
+				}()
+				wgData.Wait()
+
+			case 'q':
+				fmt.Println("Quitting...")
+				break loop
+
+			default:
+			}
+
+		case <-ticker.C:
+			a := 0
+			for i := range tick {
+				tick[i] <- struct {}{}
+			}
+			for i := range aliveNum {
+				a += <-aliveNum[i]
 			}
 			fmt.Println("No. of alive cells: ", a)
 
-		case <-state:
-			wgData.Add(p.threads)
-			for t := 0; t < p.threads; t++ {
-				go sourceToWorldData(world, p, startY, endY, c[t], &wgData)
-				startY = endY
-				endY += saveY
+		default:
+			for i := range signalWork {
+				signalWork[i] <- struct {}{}
 			}
-			wgData.Wait()
-			startY = 0
-			endY = saveY
-
-			readOrWritePgm(ioOutput, p, d, world, <-turn)
+			for i := range signalFinish {
+				<-signalFinish[i]
+			}
+			turns++
 		}
+	}
+
+	for i := range signalComplete {
+		signalComplete[i] <- struct {}{}
 	}
 
 	// Receive data from source to world
@@ -279,7 +329,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 	wgData.Wait()
 
 	// Write image
-	readOrWritePgm(ioOutput, p, d, world, <-turn)
+	readOrWritePgm(ioOutput, p, d, world, turns)
 
 	// Create an empty slice to store coordinates of cells that are still alive after p.turns are done.
 	var finalAlive []cell

@@ -50,7 +50,7 @@ func Test(t *testing.T) {
 		{"16x16x6-0", args{
 			p: golParams{
 				turns:       0,
-				threads:     4,
+				threads:     6,
 				imageWidth:  16,
 				imageHeight: 16,
 			},
@@ -82,7 +82,7 @@ func Test(t *testing.T) {
 		{"16x16x10-0", args{
 			p: golParams{
 				turns:       0,
-				threads:     4,
+				threads:     10,
 				imageWidth:  16,
 				imageHeight: 16,
 			},
@@ -98,7 +98,7 @@ func Test(t *testing.T) {
 		{"16x16x12-0", args{
 			p: golParams{
 				turns:       0,
-				threads:     4,
+				threads:     12,
 				imageWidth:  16,
 				imageHeight: 16,
 			},
@@ -146,7 +146,7 @@ func Test(t *testing.T) {
 		{"16x16x6-1", args{
 			p: golParams{
 				turns:       1,
-				threads:     2,
+				threads:     6,
 				imageWidth:  16,
 				imageHeight: 16,
 			},
@@ -178,7 +178,7 @@ func Test(t *testing.T) {
 		{"16x16x10-1", args{
 			p: golParams{
 				turns:       1,
-				threads:     2,
+				threads:     10,
 				imageWidth:  16,
 				imageHeight: 16,
 			},
@@ -194,7 +194,7 @@ func Test(t *testing.T) {
 		{"16x16x12-1", args{
 			p: golParams{
 				turns:       1,
-				threads:     2,
+				threads:     12,
 				imageWidth:  16,
 				imageHeight: 16,
 			},
@@ -242,7 +242,7 @@ func Test(t *testing.T) {
 		{"16x16x6-100", args{
 			p: golParams{
 				turns:       100,
-				threads:     2,
+				threads:     6,
 				imageWidth:  16,
 				imageHeight: 16,
 			},
@@ -274,7 +274,7 @@ func Test(t *testing.T) {
 		{"16x16x10-100", args{
 			p: golParams{
 				turns:       100,
-				threads:     2,
+				threads:     10,
 				imageWidth:  16,
 				imageHeight: 16,
 			},
@@ -290,7 +290,7 @@ func Test(t *testing.T) {
 		{"16x16x12-100", args{
 			p: golParams{
 				turns:       100,
-				threads:     2,
+				threads:     12,
 				imageWidth:  16,
 				imageHeight: 16,
 			},

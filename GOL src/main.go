@@ -96,6 +96,25 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 
 	aliveCells := make(chan []cell)
 
+	// Initialize variables for y values
+	yParams := make([]int, p.threads + 1)
+	div := p.imageHeight/p.threads
+	total := div * p.threads
+	diff := 0
+
+	// Source size of workers
+	yParams[0] = 0
+	for i := 1; i < p.threads + 1; i++  {
+		yParams[i] = div
+	}
+	// Calculate, if not a power of two, and distribute evenly
+	if total != p.imageHeight {
+		diff = p.imageHeight - total
+		for i := 1; i < diff + 1; i++  {
+			yParams[i] += 1
+		}
+	}
+
 	// Slice of channels for worker and distributor
 	signalWork := make([]chan struct{}, p.threads)
 	signalFinish := make([]chan struct{}, p.threads)
@@ -134,14 +153,27 @@ func gameOfLife(p golParams, keyChan <-chan rune) []cell {
 	for t := 0; t < p.threads; t++ {
 		// If worker is even, send halos first
 		c[t] = make(chan byte)
-		go worker(p, c[t], (t % 2) == 0,
+		go worker(p, c[t], yParams[t + 1], (t % 2) == 0,
 			signalWork[t], signalFinish[t], signalComplete[t], state[t], pause[t], tick[t], aliveNum[t],
 			aComs[((t - 1) + p.threads) % p.threads], bComs[(t + 1) % p.threads], aComs[t], bComs[t])
 	}
 
-	go distributor(p, dChans, aliveCells, c,
+	// Calculate y parameters
+	for i := 1; i < p.threads + 1; i++  {
+		yParams[i] += yParams[i - 1]
+	}
+
+	// Channel to send parameters to distributor
+	yChan := make(chan int)
+
+	go distributor(p, dChans, aliveCells, c, yChan,
 		keyChan, signalWork, signalFinish, signalComplete, state, pause, tick, aliveNum)
 	go pgmIo(p, ioChans)
+
+	// Send parameters to distributor
+	for i := 0; i < p.threads + 1; i++  {
+		yChan <- yParams[i]
+	}
 
 	alive := <-aliveCells
 	return alive

@@ -52,7 +52,7 @@ func sourceToWorldData(world [][]byte, p golParams, startY, endY int, c <-chan b
 	}
 }
 
-func worker(p golParams, c chan byte, sendFirst bool,
+func worker(p golParams, c chan byte, size int, sendFirst bool,
 	signalWork, signalFinish, signalComplete, state, pause, tick chan struct{}, aliveNum chan int,
 	aboveSend, belowSend chan<- byte, belowReceive, aboveReceive <-chan byte) {
 	// Markers of which cells should be killed/resurrected
@@ -63,7 +63,7 @@ func worker(p golParams, c chan byte, sendFirst bool,
 	hBelow := make([]byte, p.imageWidth)
 
 	// Create source slice
-	sourceY := p.imageHeight/p.threads
+	sourceY := size
 	source := make([][]byte, sourceY)
 	for i := range source {
 		source[i] = make([]byte, p.imageWidth)
@@ -192,7 +192,7 @@ func worker(p golParams, c chan byte, sendFirst bool,
 }
 
 // distributor divides the work between workers and interacts with other goroutines.
-func distributor(p golParams, d distributorChans, alive chan []cell, c []chan byte,
+func distributor(p golParams, d distributorChans, alive chan []cell, c []chan byte, yChan chan int,
 	keyChan <-chan rune, signalWork, signalFinish, signalComplete, state, pause, tick []chan struct{},
 	aliveNum []chan int) {
 
@@ -216,25 +216,22 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 		}
 	}
 
-	// Initialize values for y values
-	saveY := p.imageHeight/p.threads
-	startY := 0
-	endY := saveY
+	// Receive y parameters for each worker
+	yParams := make([]int, p.threads + 1)
+	for i := 0; i < p.threads + 1; i++ {
+		yParams[i] = <-yChan
+	}
 
 	var wgData sync.WaitGroup
 
 	// Send data from world to source
 	wgData.Add(p.threads)
 	for t := 0; t < p.threads; t++ {
-		go worldToSourceData(world, p, startY, endY, c[t], &wgData)
-		startY = endY
-		endY += saveY
+		go worldToSourceData(world, p, yParams[t], yParams[t + 1], c[t], &wgData)
 	}
 
 	// Wait until all workers have completed source
 	wgData.Wait()
-	startY = 0
-	endY = saveY
 
 	turns := 0
 	ticker := time.NewTicker(2 * time.Second)
@@ -249,13 +246,9 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 
 				wgData.Add(p.threads)
 				for t := 0; t < p.threads; t++ {
-					go sourceToWorldData(world, p, startY, endY, c[t], &wgData)
-					startY = endY
-					endY += saveY
+					go sourceToWorldData(world, p, yParams[t], yParams[t + 1], c[t], &wgData)
 				}
 				wgData.Wait()
-				startY = 0
-				endY = saveY
 
 				readOrWritePgm(ioOutput, p, d, world, turns)
 
@@ -322,9 +315,7 @@ func distributor(p golParams, d distributorChans, alive chan []cell, c []chan by
 	// Receive data from source to world
 	wgData.Add(p.threads)
 	for t := 0; t < p.threads; t++ {
-		go sourceToWorldData(world, p, startY, endY, c[t], &wgData)
-		startY = endY
-		endY += saveY
+		go sourceToWorldData(world, p, yParams[t], yParams[t + 1], c[t], &wgData)
 	}
 	wgData.Wait()
 
